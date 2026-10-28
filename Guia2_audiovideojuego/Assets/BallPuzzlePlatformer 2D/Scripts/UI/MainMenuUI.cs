@@ -21,6 +21,8 @@ namespace BallPuzzlePlatformer2D
 
         public void BtnLevel(int num)
         {
+            AudioManager.I?.UIClick();
+            AudioManager.I?.Transition();   // [AUDIO] transición menú -> nivel
             m_GameplayData.LevelNumber = num;
             SceneManager.LoadScene("Scene_1");
 

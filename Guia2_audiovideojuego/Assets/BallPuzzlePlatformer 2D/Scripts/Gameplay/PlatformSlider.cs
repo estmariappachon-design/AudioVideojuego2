@@ -18,6 +18,15 @@ namespace BallPuzzlePlatformer2D
         {
             m_StartPos = transform.position;
             m_TargetPos = m_StartPos + m_MoveDirection.normalized * m_MoveDistance;
+
+            // [AUDIO PROCEDURAL] zumbido de motor que sigue la velocidad real de la plataforma
+            if (GetComponent<MechanismHum>() == null)
+            {
+                var hum = gameObject.AddComponent<MechanismHum>();
+                hum.baseFreq = 45f;
+                hum.maxVolume = 0.1f;
+                hum.speedForFullVolume = Mathf.Max(0.5f, m_MoveSpeed);
+            }
         }
 
         public void StartSlideLoop()

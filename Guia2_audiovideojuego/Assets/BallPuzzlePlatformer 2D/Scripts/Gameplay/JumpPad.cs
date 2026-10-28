@@ -16,6 +16,7 @@ namespace BallPuzzlePlatformer2D
                     // Reset vertical speed before bounce
                     rb.velocity = new Vector2(rb.velocity.x, 0f);
                     rb.AddForce(Vector2.up * m_BounceForce, ForceMode2D.Impulse);
+                    AudioManager.I?.Bounce(transform.position, m_BounceForce);   // [AUDIO] "boing" según la fuerza
                 }
             }
         }

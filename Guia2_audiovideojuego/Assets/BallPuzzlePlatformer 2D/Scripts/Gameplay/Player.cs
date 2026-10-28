@@ -24,6 +24,10 @@ namespace BallPuzzlePlatformer2D
         private JoystickButton m_JumpButton;
         public static Player m_Main;
 
+        // [AUDIO PROCEDURAL] síntesis del rodado/impactos y pasos en escalera
+        private BallAudio m_Audio;
+        private float m_ClimbTimer;
+
         private void Awake()
         {
             m_Main = this;
@@ -35,6 +39,12 @@ namespace BallPuzzlePlatformer2D
             m_OriginalGravity = rb.gravityScale;
             m_OriginalSpeed = m_MoveSpeed;
             m_OriginalScale = transform.localScale;
+
+            // [AUDIO PROCEDURAL] Se añade por código para no tener que editar el prefab.
+            // BallAudio sintetiza en tiempo real el rodado y los impactos según la física.
+            m_Audio = GetComponent<BallAudio>();
+            if (m_Audio == null) m_Audio = gameObject.AddComponent<BallAudio>();
+            m_Audio.autoDetectJump = false;          // el salto se avisa abajo, en el momento exacto
 
             //mobile joystick
             if (InputControl.m_Main.m_MobileControl)
@@ -52,6 +62,7 @@ namespace BallPuzzlePlatformer2D
                 rb.velocity = new Vector2(rb.velocity.x, 0f); // Optional: reset Y velocity
                 rb.AddForce(Vector2.up * m_JumpForce, ForceMode2D.Impulse);
                 m_CanJump = false;
+                if (m_Audio != null) m_Audio.OnJump();   // [AUDIO] sincronizado con el impulso
             }
             // if (InputControl.m_Main.m_MobileControl)
             // {
@@ -103,6 +114,17 @@ namespace BallPuzzlePlatformer2D
             {
                 rb.velocity = new Vector2(0f, moveY * m_ClimbSpeed);
                 rb.gravityScale = 0f;
+
+                // [AUDIO] pasos en la escalera: el ritmo depende de la velocidad de subida
+                if (Mathf.Abs(moveY) > 0.1f)
+                {
+                    m_ClimbTimer -= Time.fixedDeltaTime;
+                    if (m_ClimbTimer <= 0f)
+                    {
+                        AudioManager.I?.Climb(transform.position);
+                        m_ClimbTimer = 0.3f / Mathf.Max(0.5f, Mathf.Abs(moveY));
+                    }
+                }
             }
             else
             {
@@ -182,6 +204,7 @@ namespace BallPuzzlePlatformer2D
         }
         public void Smash()
         {
+            AudioManager.I?.Shatter(transform.position);   // [AUDIO] rotura granular
             GameObject obj = Instantiate(m_SmashPrefab);
             obj.transform.position = transform.position + new Vector3(0, 0, -.1f);
             obj.transform.rotation = transform.rotation;

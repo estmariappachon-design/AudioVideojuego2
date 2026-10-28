@@ -10,6 +10,8 @@ namespace BallPuzzlePlatformer2D
         // Start is called before the first frame update
         void Start()
         {
+            // [AUDIO PROCEDURAL] golpes de las cajas según velocidad y tamaño
+            if (GetComponent<ObjectImpactAudio>() == null) gameObject.AddComponent<ObjectImpactAudio>();
 
         }
 

@@ -52,6 +52,8 @@ namespace BallPuzzlePlatformer2D
             if (other.CompareTag("Player") && !m_IsPressed)
             {
                 m_IsPressed = true;
+                AudioManager.I?.Switch(true, transform.position);   // [AUDIO] clic + tono agudo
+                ProceduralMusic.I?.PushIntensity(0.75f);            // [AUDIO] la música reacciona al mecanismo
 
                 switch (action)
                 {
@@ -73,6 +75,7 @@ namespace BallPuzzlePlatformer2D
             if (other.CompareTag("Player"))
             {
                 m_IsPressed = false;
+                AudioManager.I?.Switch(false, transform.position);  // [AUDIO] clic + tono grave
 
                 if (action == ButtonAction.SlidePlatform || action == ButtonAction.Both)
                 {

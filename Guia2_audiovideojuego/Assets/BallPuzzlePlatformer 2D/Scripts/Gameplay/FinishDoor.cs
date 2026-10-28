@@ -49,6 +49,7 @@ namespace BallPuzzlePlatformer2D
 
         public void OpenDoor()
         {
+            AudioManager.I?.Door(true, transform.position);    // [AUDIO] motor + fricción + golpe
             m_IsOpen = true;
             m_OpenSprite.SetActive(true);
             m_ClosedSprite.SetActive(false);
@@ -59,6 +60,7 @@ namespace BallPuzzlePlatformer2D
             if (m_IsOpen && other.CompareTag("Player"))
             {
                 CameraFollow.m_Main.StopFollowing();
+                AudioManager.I?.Transition();                  // [AUDIO] "whoosh" mientras la bola entra
                 m_Player = other.transform;
                 m_IsBallEntering = true;
 
@@ -96,6 +98,7 @@ namespace BallPuzzlePlatformer2D
         public void CloseDoor()
         {
             Debug.Log("CloseDoor() called");
+            AudioManager.I?.Door(false, transform.position);   // [AUDIO]
             m_IsOpen = false;
             m_OpenSprite.SetActive(false);
             m_ClosedSprite.SetActive(true);

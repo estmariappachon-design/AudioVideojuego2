@@ -69,6 +69,7 @@ namespace BallPuzzlePlatformer2D
 
         public void BtnExit()
         {
+            AudioManager.I?.UIClick();
             SceneManager.LoadScene("MainMenu");
         }
 

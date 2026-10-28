@@ -15,7 +15,7 @@ public class WorldSoundEmitter : MonoBehaviour
     public bool reactToCollision = true;
     public bool reactToTrigger = true;
 
-    [Header("Enemigos: sube la intensidad de la música al acercarse")]
+    [Header("Enemigos y peligros (sierras): suben la intensidad de la música al acercarse")]
     public bool affectsMusicIntensity = true;
     public float dangerRadius = 5f;
 
@@ -31,7 +31,7 @@ public class WorldSoundEmitter : MonoBehaviour
     void Update()
     {
         // Control dinámico de la música según la proximidad del peligro
-        if (kind == Kind.Enemy && affectsMusicIntensity && player != null && ProceduralMusic.I != null)
+        if ((kind == Kind.Enemy || kind == Kind.Hazard) && affectsMusicIntensity && player != null && ProceduralMusic.I != null)
         {
             float d = Vector2.Distance(player.position, transform.position);
             float danger = 1f - Mathf.Clamp01(d / dangerRadius);

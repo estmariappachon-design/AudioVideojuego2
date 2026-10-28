@@ -10,6 +10,12 @@ using UnityEngine.SceneManagement;
 /// bajo (triángulo), arpegio (cuadrada) y pad (3 senos).
 /// Parámetro dinámico "intensity" (0..1): densidad rítmica, notas y brillo del filtro.
 /// Derrota = efecto "tape stop" (el tono cae a cero). Victoria = fundido de salida.
+/// ESTILO ESPONJOSO + ALIEN (AudioManager.AlienStyle):
+///   · Arpegio: campana FM con PORTAMENTO (las notas se deslizan como un theremín) y ECO
+///     espacial sincronizado al tempo (corchea con puntillo).
+///   · Bajo "wobble": sierra por un filtro resonante cuyo corte oscila a tempo = bajo gelatinoso.
+///   · Bombo de goma (caída de tono más lenta), pad con vibrato lento "flotante".
+///   · Burbujas aleatorias a contratiempo cuya probabilidad crece con la intensidad.
 /// Póngalo en el mismo GameObject persistente que AudioManager (o en uno propio).
 /// </summary>
 [RequireComponent(typeof(AudioSource))]
@@ -19,10 +25,11 @@ public class ProceduralMusic : MonoBehaviour
 
     [Range(0, 1)] public float volume = 0.3f;
     [Range(0, 1)] public float intensity = 0.5f;
-    [Tooltip("Desplazamiento entre buildIndex de la escena y número de nivel (p. ej. 1 si la escena 0 es el menú)")]
-    public int buildIndexOffset = 1;
-    [Tooltip("-1 = automático por escena")]
+    [Tooltip("-1 = automático. En esta plantilla los 10 niveles son prefabs dentro de Scene_1, " +
+             "por eso el nivel lo informa GameControl.Start() llamando a Configure(nivel). 0 = música del menú.")]
     public int levelOverride = -1;
+    [Tooltip("Nombre de la escena del menú principal")]
+    public string menuSceneName = "MainMenu";
 
     // ---------------------------------------------------------------- configuración por nivel
     static readonly int[][] Scales =
@@ -64,6 +71,13 @@ public class ProceduralMusic : MonoBehaviour
     readonly double[] padPh = new double[3]; readonly float[] padFreq = new float[3];
     float mixLp;
 
+    // voces del estilo esponjoso + alien
+    float arpCur = 440f;                         // frecuencia actual con portamento
+    float[] echoBuf; int echoW; volatile int echoLen = 1; float echoLp;
+    float bassLow, bassBand; double wobPh;      // bajo wobble (filtro de estado variable)
+    float bloopEnv, bloopFreq; double bloopPh;  // burbujas a contratiempo
+    double padLfoPh;
+
     // control global
     volatile float targetMaster = 1f;
     volatile float targetPitch = 1f;
@@ -76,18 +90,21 @@ public class ProceduralMusic : MonoBehaviour
         I = this;
         if (transform.parent == null) DontDestroyOnLoad(gameObject);
         sr = AudioSettings.outputSampleRate;
+        echoBuf = new float[Mathf.Max(1, sr * 2)];   // hasta 2 s de eco
         var src = GetComponent<AudioSource>();
         src.clip = null; src.loop = true; src.playOnAwake = true; src.spatialBlend = 0f;
         src.Play();
         SceneManager.sceneLoaded += OnSceneLoaded;
-        Configure(levelOverride >= 0 ? levelOverride : SceneManager.GetActiveScene().buildIndex - buildIndexOffset + 1);
+        Configure(0);                       // configuración inicial (menú); se corrige al cargar la escena
     }
 
     void OnDestroy() { if (I == this) SceneManager.sceneLoaded -= OnSceneLoaded; }
 
     void OnSceneLoaded(Scene s, LoadSceneMode m)
     {
-        Configure(levelOverride >= 0 ? levelOverride : s.buildIndex - buildIndexOffset + 1);
+        if (levelOverride >= 0) Configure(levelOverride);
+        else if (s.name == menuSceneName) Configure(0);   // música tranquila del menú
+        else Resume();                                     // en Scene_1, GameControl llamará a Configure(nivel)
     }
 
     [Tooltip("Intensidad de reposo; la música vuelve a ella cuando no hay peligro cerca")]
@@ -111,13 +128,17 @@ public class ProceduralMusic : MonoBehaviour
     /// Genera la configuración musical del nivel a partir de una semilla (determinista).
     public void Configure(int level)
     {
-        CurrentLevel = Mathf.Max(1, level);
+        CurrentLevel = Mathf.Max(0, level);                 // 0 = menú, 1..10 = niveles
+        bool menu = CurrentLevel == 0;
+        int L = Mathf.Max(1, CurrentLevel);
         var r = new System.Random(CurrentLevel * 7919 + 101);
+        // Los niveles avanzados arrancan con más energía
+        baseIntensity = menu ? 0.2f : Mathf.Lerp(0.3f, 0.65f, (L - 1) / 9f);
         var c = new Config
         {
-            bpm = 92 + (CurrentLevel - 1) * 5 + r.Next(-3, 4),             // el tempo crece con el nivel
-            scale = Scales[(CurrentLevel - 1) % Scales.Length],
-            root = 45 + ((CurrentLevel - 1) * 5) % 12,                       // tónica en ciclo de cuartas
+            bpm = menu ? 78 : 92 + (L - 1) * 5 + r.Next(-3, 4),            // el tempo crece con el nivel
+            scale = Scales[(L - 1) % Scales.Length],
+            root = menu ? 48 : 45 + ((L - 1) * 5) % 12,                      // tónica en ciclo de cuartas
             progression = new int[4],
             arp = new int[16],
             bassSteps = r.NextDouble() < 0.5 ? new[] { 0, 6, 8, 14 } : new[] { 0, 3, 8, 11 }
@@ -128,6 +149,7 @@ public class ProceduralMusic : MonoBehaviour
         for (int i = 0; i < 16; i++) c.arp[i] = r.NextDouble() < 0.65 ? r.Next(0, 5) : -1;
         cfg = c;
         samplesPerStep = sr * 60.0 / c.bpm / 4.0;                             // semicorcheas
+        if (echoBuf != null) echoLen = Mathf.Clamp((int)(samplesPerStep * 3), 1, echoBuf.Length - 1);  // corchea con puntillo
         targetPitch = 1f; targetMaster = 1f; step = 0; nextStep = sampleClock;
     }
 
@@ -168,6 +190,14 @@ public class ProceduralMusic : MonoBehaviour
             arpEnv = 1f;
         }
 
+        // Burbujas alien a contratiempo (solo estilo esponjoso)
+        if (AudioManager.AlienStyle && s % 2 == 1 && rand01() < 0.08f + 0.25f * inten)
+        {
+            int deg = chordDeg + (int)(rand01() * 5f);
+            bloopFreq = MidiToHz(c.root + 36 + ScaleNote(c.scale, deg)) * 0.7f;   // empieza abajo y sube
+            bloopEnv = 1f; bloopPh = 0;
+        }
+
         // Pad: acorde nuevo cada compás
         if (s == 0)
             for (int k = 0; k < 3; k++)
@@ -196,8 +226,10 @@ public class ProceduralMusic : MonoBehaviour
 
             float pm = pitchMul;
 
-            // Bombo: seno con caída rápida de frecuencia 150 Hz -> 45 Hz
-            kickPitch *= 0.9993f;
+            bool alien = AudioManager.AlienStyle;
+
+            // Bombo: seno con caída rápida de frecuencia 150 Hz -> 45 Hz (en estilo alien, más lenta = "de goma")
+            kickPitch *= alien ? 0.9996f : 0.9993f;
             kickPh += (45f + 105f * kickPitch) * pm / sr;
             kickEnv *= 0.99975f;
             float kick = (float)System.Math.Sin(kickPh * TWO_PI) * kickEnv;
@@ -206,37 +238,88 @@ public class ProceduralMusic : MonoBehaviour
             float n = rand01() * 2f - 1f;
             hatLp += 0.25f * (n - hatLp);
             hatEnv *= 0.9985f;
-            float hat = (n - hatLp) * hatEnv * 0.35f;
+            float hat = (n - hatLp) * hatEnv * (alien ? 0.1f : 0.2f);     // hi-hat discreto
 
-            // Bajo: triángulo
-            bassPh += bassFreq * pm / sr;
-            double bx = bassPh - System.Math.Floor(bassPh);
-            bassEnv *= 0.99993f;
-            float bass = (float)(4.0 * System.Math.Abs(bx - 0.5) - 1.0) * bassEnv * 0.55f;
-
-            // Arpegio: cuadrada con ancho de pulso que depende de la intensidad
-            arpPh += arpFreq * pm / sr;
-            double ax = arpPh - System.Math.Floor(arpPh);
-            arpEnv *= 0.99965f;
-            float arp = (ax < 0.3 + 0.2 * smoothIntensity ? 1f : -1f) * arpEnv * 0.16f;
-
-            // Pad: tres senos ligeramente desafinados
-            float pad = 0;
-            for (int k = 0; k < 3; k++)
+            float bass, arp, pad = 0f, bloop = 0f;
+            if (!alien)
             {
-                padPh[k] += padFreq[k] * (1.0 + 0.002 * k) * pm / sr;
-                pad += (float)System.Math.Sin(padPh[k] * TWO_PI);
+                // Bajo: triángulo
+                bassPh += bassFreq * pm / sr;
+                double bx = bassPh - System.Math.Floor(bassPh);
+                bassEnv *= 0.99993f;
+                bass = (float)(4.0 * System.Math.Abs(bx - 0.5) - 1.0) * bassEnv * 0.55f;
+
+                // Arpegio: cuadrada con ancho de pulso que depende de la intensidad
+                arpPh += arpFreq * pm / sr;
+                double ax = arpPh - System.Math.Floor(arpPh);
+                arpEnv *= 0.99965f;
+                arp = (ax < 0.3 + 0.2 * smoothIntensity ? 1f : -1f) * arpEnv * 0.16f;
+                arpCur = arpFreq;
+
+                // Pad: tres senos ligeramente desafinados
+                for (int k = 0; k < 3; k++)
+                {
+                    padPh[k] += padFreq[k] * (1.0 + 0.002 * k) * pm / sr;
+                    pad += (float)System.Math.Sin(padPh[k] * TWO_PI);
+                }
+                pad *= 0.06f;
             }
-            pad *= 0.06f;
+            else
+            {
+                // BAJO WOBBLE: sierra -> filtro resonante cuyo corte oscila en corcheas (gelatina rítmica)
+                bassPh += bassFreq * pm / sr;
+                double bx = bassPh - System.Math.Floor(bassPh);
+                float saw = (float)(2.0 * bx - 1.0);
+                wobPh += pm / (samplesPerStep * 2.0); if (wobPh > 1.0) wobPh -= 1.0;
+                float wob = 0.5f - 0.5f * (float)System.Math.Cos(TWO_PI * wobPh);
+                float bfc = 110f + (200f + 300f * smoothIntensity) * wob;
+                float bk = 2f * Mathf.Sin(Mathf.PI * bfc / sr);
+                float bh = saw - bassLow - 0.7f * bassBand; bassBand += bk * bh; bassLow += bk * bassBand;   // poca resonancia
+                bassEnv *= 0.99995f;
+                bass = bassLow * bassEnv * 0.6f;
 
-            float mix = kick * 0.8f + hat + bass + arp + pad;
+                // ARPEGIO: campana FM con PORTAMENTO (la nota se desliza hacia la nueva, ~25 ms)
+                arpCur += (arpFreq - arpCur) * 0.001f;
+                arpPh += arpCur * pm / sr;
+                arpEnv *= 0.99985f;
+                float bell = (float)System.Math.Sin(TWO_PI * arpPh + 0.9 * arpEnv * System.Math.Sin(TWO_PI * arpPh * 2.0));
+                arp = bell * arpEnv * 0.15f;
 
-            // Filtro global: la intensidad abre el brillo de toda la mezcla
-            float cutoff = 800f + 7000f * smoothIntensity;
+                // BURBUJAS: tono que sube, caída rápida
+                if (bloopEnv > 0.001f)
+                {
+                    bloopFreq *= 1.00012f; bloopEnv *= 0.9992f;
+                    bloopPh += bloopFreq * pm / sr;
+                    bloop = (float)System.Math.Sin(TWO_PI * bloopPh) * bloopEnv * 0.07f;
+                }
+
+                // ECO ESPACIAL (corchea con puntillo) con pasa-bajos en la realimentación
+                int len = echoBuf.Length;
+                float delayed = echoBuf[(echoW - echoLen + len) % len];
+                echoLp += 0.3f * (delayed - echoLp);
+                echoBuf[echoW] = arp + bloop + echoLp * 0.45f;
+                echoW = (echoW + 1) % len;
+                arp += delayed * 0.55f;
+
+                // PAD FLOTANTE: tres senos con vibrato lento (0,25 Hz) desfasado entre voces
+                padLfoPh += 0.25 / sr; if (padLfoPh > 1.0) padLfoPh -= 1.0;
+                for (int k = 0; k < 3; k++)
+                {
+                    double drift = 1.0 + 0.004 * k + 0.006 * System.Math.Sin(TWO_PI * padLfoPh + k * 2.1);
+                    padPh[k] += padFreq[k] * drift * pm / sr;
+                    pad += (float)System.Math.Sin(padPh[k] * TWO_PI);
+                }
+                pad *= 0.075f;
+            }
+
+            float mix = kick * 0.6f + hat + bass + arp + pad + bloop;
+
+            // Filtro global: la intensidad abre el brillo de toda la mezcla (más cerrado = más suave)
+            float cutoff = 700f + 4500f * smoothIntensity;
             float a = 1f - Mathf.Exp(-2f * Mathf.PI * cutoff * Mathf.Max(pm, 0.1f) / sr);
             mixLp += a * (mix - mixLp);
 
-            float o = mixLp * volume * master;
+            float o = mixLp * volume * master * 0.7f;      // la música queda un escalón debajo de los efectos
             o = o / (1f + Mathf.Abs(o));                  // saturación suave (limitador)
             for (int ch = 0; ch < channels; ch++) data[i + ch] += o;
         }

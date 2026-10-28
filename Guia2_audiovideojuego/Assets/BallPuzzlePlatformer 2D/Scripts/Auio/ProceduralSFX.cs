@@ -265,4 +265,54 @@ public static class ProceduralSFX
     /// Clic de interfaz.
     public static AudioClip UIClick()
         => ToClip("sfx_ui", Tone(0.05f, p => 1800f, Wave.Sine, 0.002f, 0.5f, 3f), 0.5f);
+
+    // ---------------------------------------------------------------- AÑADIDOS PARA ESTA PLANTILLA
+
+    /// Paso en escalera: golpecito de madera (ruido filtrado + tono corto).
+    public static AudioClip ClimbTick(float pitch = 1f)
+    {
+        var n = Tone(0.05f, p => 0, Wave.Noise, 0.002f, 0.6f, 4f);
+        LowPass(n, p => 1800f * pitch);
+        var t = Tone(0.06f, p => 320f * pitch, Wave.Triangle, 0.002f, 0.5f, 4f);
+        return ToClip("sfx_climb", Mix(n, t), 0.5f);
+    }
+
+    /// Rotura de la bola (Smash): SÍNTESIS GRANULAR.
+    /// Se dispersan ~60 "granos" (micro-sonidos de 5-30 ms) en posiciones aleatorias,
+    /// con tono y brillo aleatorios y densidad que decae: suena a vidrio/cerámica quebrándose.
+    public static AudioClip Shatter()
+    {
+        float dur = 0.9f;
+        int n = Mathf.CeilToInt(dur * SR);
+        var d = new float[n];
+        for (int g = 0; g < 60; g++)
+        {
+            float startP = Mathf.Pow((float)rng.NextDouble(), 2.2f);           // más granos al principio
+            int start = (int)(startP * n * 0.8f);
+            int len = (int)(SR * (0.005f + 0.025f * (float)rng.NextDouble()));
+            float f = 1500f + 6000f * (float)rng.NextDouble();
+            float amp = (1f - startP) * (0.4f + 0.6f * (float)rng.NextDouble());
+            double ph = 0;
+            for (int i = 0; i < len && start + i < n; i++)
+            {
+                float p = (float)i / len;
+                ph += f / SR;
+                float grain = (Osc(Wave.Sine, ph) * 0.6f + Noise() * 0.4f) * Mathf.Sin(p * Mathf.PI); // ventana de Hann aprox.
+                d[start + i] += grain * amp;
+            }
+        }
+        var thump = Tone(0.25f, p => Mathf.Lerp(120f, 40f, p), Wave.Sine, 0.003f, 1.2f, 3f);
+        return ToClip("sfx_shatter", Mix(d, thump));
+    }
+
+    /// Power-up: barrido de frecuencia con vibrato + una quinta justa encima.
+    /// Si toHz > fromHz el sonido sube (velocidad, salto, crecer); si es menor, baja (encoger).
+    public static AudioClip PowerUp(float fromHz, float toHz, Wave w)
+    {
+        var a = Tone(0.45f, p => Mathf.Lerp(fromHz, toHz, p) * (1f + 0.02f * Mathf.Sin(p * 90f)), w, 0.02f, 0.4f, 1.5f);
+        var b = Tone(0.45f, p => Mathf.Lerp(fromHz, toHz, p) * 1.5f, Wave.Sine, 0.05f, 0.25f, 1.5f);   // quinta justa
+        var d = Mix(a, b);
+        LowPass(d, p => 4000f);
+        return ToClip("sfx_powerup", d, 0.7f);
+    }
 }

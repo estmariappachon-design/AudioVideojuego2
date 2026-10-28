@@ -20,6 +20,8 @@ namespace BallPuzzlePlatformer2D
 
         public void Continue()
         {
+            AudioManager.I?.UIClick();
+            AudioManager.I?.Transition();   // [AUDIO] transición al siguiente nivel
             m_GameplayData.LevelNumber++;
             if (m_GameplayData.LevelNumber > m_Contents.m_Levels.Length - 1)
             {

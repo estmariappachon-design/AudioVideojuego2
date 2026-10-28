@@ -26,11 +26,17 @@ namespace BallPuzzlePlatformer2D
 
             int levelNum = m_GameplayData.LevelNumber;
             Instantiate(m_Contents.m_Levels[levelNum].m_LevelPrefab);
+
+            // [AUDIO PROCEDURAL] Los 10 niveles son prefabs dentro de esta misma escena,
+            // así que aquí le decimos al generador musical qué nivel es (1..10).
+            // Cada nivel = semilla distinta = tempo, escala, tónica y patrones distintos.
+            ProceduralMusic.I?.Configure(levelNum + 1);
         }
 
         public void HandleWin()
         {
             if (m_GameState != 0) return;
+            AudioManager.I?.Victory();      // [AUDIO] fanfarria sintetizada + fundido de la música
             StartCoroutine(Co_HandleWin());
         }
 
@@ -46,6 +52,7 @@ namespace BallPuzzlePlatformer2D
         public void HandleLose()
         {
             if (m_GameState != 0) return;
+            AudioManager.I?.Defeat();       // [AUDIO] melodía descendente + "tape stop" de la música
             StartCoroutine(Co_HandleLose());
         }
 

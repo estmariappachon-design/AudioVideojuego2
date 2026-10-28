@@ -24,6 +24,7 @@ namespace BallPuzzlePlatformer2D
                 Player player = other.GetComponent<Player>();
                 if (player != null)
                 {
+                    AudioManager.I?.PowerUp((int)powerUpType, transform.position);   // [AUDIO]
                     switch (powerUpType)
                     {
                         case PowerUpType.Speed:
